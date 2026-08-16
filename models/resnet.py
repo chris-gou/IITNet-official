@@ -83,6 +83,12 @@ class ResNetFeature(nn.Module):
 
         super(ResNetFeature, self).__init__()
 
+        depth_presets = {
+            'full':    [3, 4, 6, 3],   # ResNet-50 baseline , blocks for each layer
+            'medium':  [2, 2, 3, 2],
+            'shallow': [1, 1, 2, 1],
+        }
+
         self.layer_config_dict = {
             18: [2, 2, 2, 2],
             34: [3, 4, 6, 3],
@@ -90,9 +96,13 @@ class ResNetFeature(nn.Module):
             101: [3, 4, 23, 3],
             152: [3, 8, 36, 3]
         }
+
         self.inplanes = 16
         self.config = config
-        self.layers = self.layer_config_dict[config['num_layers']]
+        # self.layers = self.layer_config_dict[config['num_layers']]
+        depth_key = config.get('depth_preset', 'full')
+        self.layers = depth_presets[depth_key] # depth ablation -> set the nr of blocks
+
         if config['num_layers'] == 18 or config['num_layers'] == 34:
             block = BasicBlock
         elif config['num_layers'] == 50 or config['num_layers'] == 101 or config['nun_layers'] == 152:
@@ -100,19 +110,25 @@ class ResNetFeature(nn.Module):
         else:
             raise NotImplementedError("num layers '{}' is not in layer config".format(config['num_layers']))
 
+        width = config['width_multiplier'] if config.get('width_multiplier') is not None else 1.0
+        base_widths = [int(w * width) for w in [16, 16, 32, 32]]
+        self.inplanes = base_widths[0]
+
         self.initial_layer = nn.Sequential(
-            nn.Conv1d(1, 16, 7, 2, 3, bias=False),
-            nn.BatchNorm1d(16),
+            nn.Conv1d(1, base_widths[0], 7, 2, 3, bias=False),
+            nn.BatchNorm1d(base_widths[0]),
             nn.ReLU(),
             nn.MaxPool1d(3, 2, 1))
 
-        self.layer1 = self._make_layer(block, 16, self.layers[0], stride=1, first=True)
-        self.layer2 = self._make_layer(block, 16, self.layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 32, self.layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 32, self.layers[3], stride=2)
+        self.layer1 = self._make_layer(block, base_widths[0], self.layers[0], stride=1, first=True)
+        self.layer2 = self._make_layer(block, base_widths[1], self.layers[1], stride=2)
+        self.layer3 = self._make_layer(block, base_widths[2], self.layers[2], stride=2)
+        self.layer4 = self._make_layer(block, base_widths[3], self.layers[3], stride=2)
         self.maxpool = nn.MaxPool1d(3, 2, 1)
 
         self.dropout = nn.Dropout(p=config['dropout_rate'])
+
+        self.out_channels = base_widths[3] * block.expansion
         
         for m in self.modules():
             if isinstance(m, nn.Conv1d):
@@ -140,7 +156,7 @@ class ResNetFeature(nn.Module):
 
     def forward(self, x):
         f_seq = []
-
+        
         for i in range(self.config['seq_len']):
             f = self.initial_layer(x[:, i].view(x.size(0), 1, -1))
             f = self.layer1(f)

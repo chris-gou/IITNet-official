@@ -9,6 +9,7 @@ import sklearn.metrics as skmet
 from terminaltables import SingleTable
 from termcolor import colored
 
+RESULTS_PATH = "/mnt/truenas_db/user/christina/iitnet"
 
 _, term_width = os.popen('stty size', 'r').read().split()
 term_width = int(term_width)
@@ -169,36 +170,72 @@ class EarlyStopping:
         torch.save(model.state_dict(), os.path.join(self.ckpt_path, self.ckpt_name))
         self.init_metric = val_metric
 
-def summarize_result(config, fold, y_true, y_pred):
-    os.makedirs('results', exist_ok=True)
-    y_pred_argmax = np.argmax(y_pred, 1)
-    result_dict = skmet.classification_report(y_true, y_pred_argmax, digits=3, output_dict=True)
-    cm = skmet.confusion_matrix(y_true, y_pred_argmax)
-    
-    accuracy = round(result_dict['accuracy']*100, 1)
-    macro_f1 = round(result_dict['macro avg']['f1-score']*100, 1)
-    kappa = round(skmet.cohen_kappa_score(y_true, y_pred_argmax), 3)
-    
-    wpr = round(result_dict['0.0']['precision']*100, 1)
-    wre = round(result_dict['0.0']['recall']*100, 1)
-    wf1 = round(result_dict['0.0']['f1-score']*100, 1)
-    
-    n1pr = round(result_dict['1.0']['precision']*100, 1)
-    n1re = round(result_dict['1.0']['recall']*100, 1)
-    n1f1 = round(result_dict['1.0']['f1-score']*100, 1)
+def summarize_per_fold(config, fold, y_true, y_pred):
+    results_path = os.path.join(RESULTS_PATH, f'{config["name"]}')
+    os.makedirs(results_path, exist_ok=True)
+    file_path = os.path.join(results_path, 'results_per_fold.txt')
+    file_exists = os.path.exists(file_path)
+    y_pred_argmax = np.argmax(y_pred, 1) if y_pred.ndim > 1 else y_pred
+    per_class_f1 = skmet.f1_score(y_true, y_pred_argmax, average=None, labels=[0, 1, 2, 3, 4])  # array indexed 0..4
+    fold_metrics = {
+        'fold': fold,
+        'accuracy': round(skmet.accuracy_score(y_true, y_pred_argmax) * 100, 1),
+        'macro_f1': round(skmet.f1_score(y_true, y_pred_argmax, average='macro') * 100, 1),
+        'kappa': round(skmet.cohen_kappa_score(y_true, y_pred_argmax), 3),
+        'f1_w': round(per_class_f1[0] * 100, 1),
+        'f1_n1': round(per_class_f1[1] * 100, 1),
+        'f1_n2': round(per_class_f1[2] * 100, 1),
+        'f1_n3': round(per_class_f1[3] * 100, 1),
+        'f1_rem': round(per_class_f1[4] * 100, 1)
+    }
+    with open(file_path, 'a') as f:
+        if not file_exists:
+            f.write(' '.join(fold_metrics.keys()) + '\n')
+        f.write(' '.join(str(v) for v in fold_metrics.values()) + '\n')
 
-    n2pr = round(result_dict['2.0']['precision']*100, 1)
-    n2re = round(result_dict['2.0']['recall']*100, 1)
-    n2f1 = round(result_dict['2.0']['f1-score']*100, 1)
+def summarize_result(config, fold,Y_true, Y_pred, y_true, y_pred, latency_stats, all_latency_stats=None):
+    results_path = os.path.join(RESULTS_PATH, f'{config["name"]}')
+    os.makedirs(results_path, exist_ok=True)
+    file_path = os.path.join(results_path, 'results.txt')
+    file_exists = os.path.exists(file_path)
+    summarize_per_fold(config, fold, y_true, y_pred)
+
+    Y_pred_argmax = np.argmax(Y_pred, 1)
+    result_dict = skmet.classification_report(Y_true, Y_pred_argmax, digits=3, output_dict=True)
+    cm = skmet.confusion_matrix(Y_true, Y_pred_argmax)
+
+    accuracy = round(result_dict['accuracy']*100, 1) if 'accuracy' in result_dict else 0.0
+    macro_f1 = round(result_dict['macro avg']['f1-score']*100, 1) if 'macro avg' in result_dict else 0.0
+    kappa = round(skmet.cohen_kappa_score(Y_true, Y_pred_argmax), 3) if len(Y_true) > 0 else 0.0
     
-    n3pr = round(result_dict['3.0']['precision']*100, 1)
-    n3re = round(result_dict['3.0']['recall']*100, 1)
-    n3f1 = round(result_dict['3.0']['f1-score']*100, 1)
+    wpr = round(result_dict['0.0']['precision']*100, 1) if '0.0' in result_dict else 0.0
+    wre = round(result_dict['0.0']['recall']*100, 1) if '0.0' in result_dict else 0.0
+    wf1 = round(result_dict['0.0']['f1-score']*100, 1) if '0.0' in result_dict else 0.0
     
-    rpr = round(result_dict['4.0']['precision']*100, 1)
-    rre = round(result_dict['4.0']['recall']*100, 1)
-    rf1 = round(result_dict['4.0']['f1-score']*100, 1)
+    n1pr = round(result_dict['1.0']['precision']*100, 1) if '1.0' in result_dict else 0.0
+    n1re = round(result_dict['1.0']['recall']*100, 1) if '1.0' in result_dict else 0.0
+    n1f1 = round(result_dict['1.0']['f1-score']*100, 1) if '1.0' in result_dict else 0.0
+
+    n2pr = round(result_dict['2.0']['precision']*100, 1) if '2.0' in result_dict else 0.0
+    n2re = round(result_dict['2.0']['recall']*100, 1) if '2.0' in result_dict else 0.0
+    n2f1 = round(result_dict['2.0']['f1-score']*100, 1) if '2.0' in result_dict else 0.0
     
+    n3pr = round(result_dict['3.0']['precision']*100, 1) if '3.0' in result_dict else 0.0
+    n3re = round(result_dict['3.0']['recall']*100, 1) if    '3.0' in result_dict else 0.0
+    n3f1 = round(result_dict['3.0']['f1-score']*100, 1) if '3.0' in result_dict else 0.0
+    
+    rpr = round(result_dict['4.0']['precision']*100, 1) if '4.0' in result_dict else 0.0
+    rre = round(result_dict['4.0']['recall']*100, 1) if '4.0' in result_dict else 0.0
+    rf1 = round(result_dict['4.0']['f1-score']*100, 1) if '4.0' in result_dict else 0.0
+
+    total_samples = latency_stats['total_samples']
+    per_batch_mean = round(latency_stats['batch_mean_ms'], 2)
+    per_batch_std = round(latency_stats['batch_std_ms'], 2)
+    per_sample_latency = round(latency_stats['sample_mean_ms'], 3)
+    throughput = round(latency_stats['throughput_samples_per_sec'], 1)
+    p95_latency = round(latency_stats['batch_p95_ms'], 2)
+    p99_latency = round(latency_stats['batch_p99_ms'], 2)
+
     overall_data = [
         ['ACC', 'MF1', '\u03BA'],
         [accuracy, macro_f1, kappa],
@@ -212,28 +249,61 @@ def summarize_result(config, fold, y_true, y_pred):
         ['N3', cm[3][0], cm[3][1], cm[3][2], cm[3][3], cm[3][4], n3pr, n3re, n3f1],
         ['R', cm[4][0], cm[4][1], cm[4][2], cm[4][3], cm[4][4], rpr, rre, rf1],
     ]
+
+    latency_data = [
+        ['Total Samples', 'Per Batch Mean (ms)', 'Per Batch Std (ms)', 'Per Sample Latency (ms)', 'Throughput (samples/sec)', 'P95 Latency (ms)', 'P99 Latency (ms)'],
+        [total_samples, per_batch_mean, per_batch_std, per_sample_latency, throughput, p95_latency, p99_latency]
+    ]
     
     overall_dt = SingleTable(overall_data, colored('OVERALL RESULT', 'red'))
     perclass_dt = SingleTable(perclass_data, colored('PER-CLASS RESULT', 'red'))
+    latency_dt = SingleTable(latency_data, colored('LATENCY RESULT', 'red'))
     
     print('\n[INFO] Evaluation result from fold 1 to {}'.format(fold))
     print('\n' + overall_dt.table)
     print('\n' + perclass_dt.table)
+    print('\n' + latency_dt.table)
     print(colored(' A', 'cyan') + ': Actual Class, ' + colored('P', 'green') + ': Predicted Class' + '\n\n')
+
+    metrics = {}
+
+    if all_latency_stats is None:
+        metrics[fold] = metrics = {
+                    'accuracy':           accuracy,
+                    'macro_f1':           macro_f1,
+                    'kappa':              kappa,
+                    'f1_w':        wf1,
+                    'f1_n1':              n1f1,
+                    'f1_n2':              n2f1,
+                    'f1_n3':              n3f1,
+                    'f1_rem':             rf1,
+        }
+    elif all_latency_stats is not None:
+        metrics[fold] = metrics = {
+                    'accuracy':           accuracy,
+                    'macro_f1':           macro_f1,
+                    'kappa':              kappa,
+                    'f1_w':        wf1,
+                    'f1_n1':              n1f1,
+                    'f1_n2':              n2f1,
+                    'f1_n3':              n3f1,
+                    'f1_rem':             rf1,
+                    'avg_batch_latency':  per_batch_mean,
+                    'avg_batch_std':      per_batch_std,
+                    'avg_sample_latency': per_sample_latency,
+                    'avg_throughput':     throughput,
+                    'avg_p95':            p95_latency,
+                    'avg_p99':            p99_latency,
+        }
     
+    with open(file_path, 'a') as f:
+        if not file_exists:
+            header = ' '.join(metrics.keys())
+            f.write(header + '\n')
+        values = ' '.join(str(v) for v in metrics.values())
+        f.write(values + '\n')
+        print(f"\n[INFO] Fold {fold} - Results saved to {os.path.join(results_path, 'results.txt')}")
     
-    with open(os.path.join('results', config['config_name'] + '.txt'), 'w') as f:
-        f.write(
-            str(fold) + ' ' +
-            str(round(result_dict['accuracy']*100, 1)) + ' ' + 
-            str(round(result_dict['macro avg']['f1-score']*100, 1)) + ' ' + 
-            str(round(kappa, 3)) + ' ' +
-            str(round(result_dict['0.0']['f1-score']*100, 1)) + ' ' +
-            str(round(result_dict['1.0']['f1-score']*100, 1)) + ' ' +
-            str(round(result_dict['2.0']['f1-score']*100, 1)) + ' ' +
-            str(round(result_dict['3.0']['f1-score']*100, 1)) + ' ' +
-            str(round(result_dict['4.0']['f1-score']*100, 1)) + ' '
-        )
 
 def set_random_seed(seed_value, use_cuda=True):
     np.random.seed(seed_value) # cpu vars

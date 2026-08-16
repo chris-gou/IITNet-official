@@ -12,7 +12,7 @@ class MainModel(nn.Module):
 
         self.config = config
         self.feature = ResNetFeature(config)
-        self.classifier = PlainLSTM(config, hidden_dim=config['hidden_dim'], num_classes=config['num_classes'])
+        self.classifier = PlainLSTM(config, input_dim=self.feature.out_channels, hidden_dim=config['hidden_dim'], num_classes=config['num_classes'])
 
     def forward(self, x):
         out = self.classifier(self.feature(x))
@@ -21,23 +21,26 @@ class MainModel(nn.Module):
 
 
 class PlainLSTM(nn.Module):
-    def __init__(self, config, hidden_dim, num_classes):
+    def __init__(self, config, input_dim, hidden_dim, num_classes):
         super(PlainLSTM, self).__init__()
         self.config = config
         self.hidden_dim = hidden_dim
         self.num_layers = 2
         self.num_classes = num_classes
-        self.bidirectional = config['bidirectional']
+        self.bidirectional = bool(config['bidirectional'])
 
-        self.input_dim = 128
+        self.input_dim = input_dim
 
         # architecture
-        self.lstm = nn.LSTM(self.input_dim, self.hidden_dim, batch_first=True, num_layers=self.num_layers, bidirectional=config['bidirectional'])
-        self.fc = nn.Linear(self.hidden_dim * 2, self.num_classes)
+        self.lstm = nn.LSTM(self.input_dim, self.hidden_dim, batch_first=True, 
+                num_layers=self.num_layers, bidirectional=self.bidirectional)
+        fc_input_dim = self.hidden_dim * 2 if self.bidirectional else self.hidden_dim
+
+        self.fc = nn.Linear(fc_input_dim, self.num_classes)
 
     def init_hidden(self, x):
-        h0 = torch.zeros((self.num_layers * (2 if self.bidirectional else 1), x.size(0), self.hidden_dim)).cuda()
-        c0 = torch.zeros((self.num_layers * (2 if self.bidirectional else 1), x.size(0), self.hidden_dim)).cuda()
+        h0 = torch.zeros(self.num_layers * (2 if self.bidirectional else 1), x.size(0), self.hidden_dim, device=x.device)
+        c0 = torch.zeros((self.num_layers * (2 if self.bidirectional else 1), x.size(0), self.hidden_dim), device=x.device)
         
         return h0, c0
 
@@ -45,9 +48,11 @@ class PlainLSTM(nn.Module):
         hidden = self.init_hidden(x)
         out, hidden = self.lstm(x, hidden)
 
-        out_f = out[:, -1, :self.hidden_dim]
-        out_b = out[:, 0, self.hidden_dim:]
-        out = torch.cat((out_f, out_b), dim=1)
-        out = self.fc(out)
+        if self.bidirectional:
+            out_f = out[:, -1, :self.hidden_dim]
+            out_b = out[:, 0, self.hidden_dim:]
+            out = torch.cat((out_f, out_b), dim=1)
+        else:
+            out = out[:, -1, :] 
 
-        return out
+        return self.fc(out)
