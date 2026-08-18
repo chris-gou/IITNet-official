@@ -24,7 +24,7 @@ class OneFoldTrainer:
             self.device = torch.device('cpu')
         else:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        print('[INFO] Config name: {}'.format(os.path.basename(args.config)))
+        print('[INFO] Config name: {}'.format(config['name']))
 
         class_weights = torch.tensor([
             1.0,   # W (baseline)
@@ -259,9 +259,12 @@ class OneFoldTrainer:
             raise FileNotFoundError(f'[ERROR] No checkpoint found at {ckpt_file}')
 
         y_true, y_pred = self.evaluate(mode='test')
+        # save cm 
+        save_cm(y_true, y_pred, self.ckpt_path, self.fold)
         print('')
 
         latency_stats = self.inference(mode='test')
+        # latency_stats = None
         return y_true, y_pred, latency_stats
 
 def update_config(base_config, override_config):
@@ -304,8 +307,7 @@ def main():
     Y_pred = np.zeros((0, config['num_classes']))
     all_latency_stats = []
     try:
-       
-        for fold in range(1, config['n_splits'] + 1):
+        for fold in range(1, config['n_splits']+1):
             trainer = OneFoldTrainer(args, fold, config)
             y_true, y_pred, latency_stats = trainer.run()
             Y_true = np.concatenate([Y_true, y_true])
@@ -317,6 +319,7 @@ def main():
         notify(f"Training failed: {e}")
         raise
 
+    notify(f"Training completed successfully for config: {config['name']}")
 
 if __name__ == "__main__":
     main()

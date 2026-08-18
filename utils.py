@@ -315,3 +315,9 @@ def set_random_seed(seed_value, use_cuda=True):
         torch.cuda.manual_seed_all(seed_value) # gpu vars
         torch.backends.cudnn.deterministic = True  #needed
         torch.backends.cudnn.benchmark = False
+
+def save_cm(y_true, y_pred, save_path, fold):
+    y_pred_labels = y_pred.argmax(axis=1)  
+    cm = skmet.confusion_matrix(y_true, y_pred_labels)
+    np.savez(os.path.join(save_path, f"fold_{fold}_reconstructed.npz",), y_true=y_true, y_pred=y_pred, confmat=cm)
+    
