@@ -3,9 +3,11 @@ import json
 import os
 from pathlib import Path
 
-CURRENT_DIR = Path.cwd()
-CHECKPOINTS_DIR = os.path.join(CURRENT_DIR, 'checkpoints')
+THIS_FILE = Path(__file__).resolve()
+ROOT = THIS_FILE.parent.parent
 
+CHECKPOINTS_DIR = ROOT / 'checkpoints'
+CONFIGS_DIR = ROOT / 'configs'
 def pooled_metrics(confmats):
     # pool metrics based on existing confusion matrices
     pooled = np.sum(confmats, axis=0)
@@ -21,7 +23,7 @@ def pooled_metrics(confmats):
     return acc, f1.mean(), kappa, f1
 
 
-config_path = 'configs/IITNet_Sleep-EDF_SL-10.json'
+config_path = os.path.join(CONFIGS_DIR, 'IITNet_Sleep-EDF_SL-10.json')
 with open(config_path) as config_file:
     config = json.load(config_file)
 
