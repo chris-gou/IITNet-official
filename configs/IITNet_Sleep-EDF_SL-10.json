@@ -6,15 +6,18 @@
     "seq_len": 10,
     "target_idx": -1,
     "n_splits": 20,
-
     "hidden_dim": 128,
-    "batch_size": 256,
-    "patience": 10,
+    "batch_size": 128,
+    "grad_accum_steps": 8,
+    "patience": 20,
     "num_layers": 50,
     "dropout_rate": 0.5,
     "num_classes": 5,
     "early_stopping_mode": "min",
     "bidirectional": true,
     "learning_rate": 0.005,
-    "weight_decay": 0.000001
+    "weight_decay": 0.000001,
+    "epoch_duration": 30,
+    "name": "IITNet_Sleep-EDF_SL-10_w60",
+    "use_class_weights": false
 }
