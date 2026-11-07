@@ -57,7 +57,7 @@ class EEGDataLoader(Dataset):
         
         x = x.reshape(-1, self.samples_per_sub)
         inputs = torch.from_numpy(np.array(x[start:start + self.seq_len])).float()
-        label = y[(start + self.target_idx) // self.sub_per_base]
+        label = y[(start + self.target_idx % self.seq_len) // self.sub_per_base]
         return inputs, torch.tensor(label).long()
     
         # # sub-epochs
