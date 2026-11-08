@@ -88,38 +88,38 @@ class OneFoldTrainer:
     
     def train_one_epoch(self, epoch):
         self.model.train()
-        correct, total, train_loss = 0, 0, 0
+        # correct, total, train_loss = 0, 0, 0
 
         # gradient accumulation
         grad_accum_steps = self.config.get('grad_accum_steps', 1)
         self.optimizer.zero_grad(set_to_none=True)
-        t_prev = time.perf_counter()
+        # t_prev = time.perf_counter()
 
         try:
             for i, (inputs, labels) in enumerate(self.loader_dict['train']):
-                wait_ms = (time.perf_counter() - t_prev) * 1000
+                # wait_ms = (time.perf_counter() - t_prev) * 1000
                 try:
-                    t0 = time.perf_counter()
+                    # t0 = time.perf_counter()
 
-                    total += labels.size(0)
-                    inputs = inputs.to(self.device)
-                    labels = labels.view(-1).to(self.device)
+                    # total += labels.size(0)
+                    inputs = inputs.to(self.device, non_blocking=True)
+                    labels = labels.view(-1).to(self.device, non_blocking=True)
 
-                    if self.device.type == 'cuda':
-                        torch.cuda.synchronize()
-                    t1 = time.perf_counter()
+                    # if self.device.type == 'cuda':
+                    #     torch.cuda.synchronize()
+                    # t1 = time.perf_counter()
                     
                     outputs = self.model(inputs)
-                    loss = self.criterion(outputs, labels)
-                    loss = loss / grad_accum_steps # scale loss
+                    loss = self.criterion(outputs, labels) / grad_accum_steps  # scale loss
+                    # loss = loss / grad_accum_steps # scale loss
                     
                     loss.backward()
 
-                    if self.device.type == 'cuda':
-                        torch.cuda.synchronize()
-                    t2 = time.perf_counter()
-                    data_time = (t1 - t0) * 1000
-                    gpu_time  = (t2 - t1) * 1000
+                    # if self.device.type == 'cuda':
+                    #     torch.cuda.synchronize()
+                    # t2 = time.perf_counter()
+                    # data_time = (t1 - t0) * 1000
+                    # gpu_time  = (t2 - t1) * 1000
 
                     if (i+1) % grad_accum_steps == 0:
                         self.optimizer.step()
@@ -133,9 +133,9 @@ class OneFoldTrainer:
                             if self.early_stopping.early_stop:
                                 return
 
-                    train_loss += loss.item() * grad_accum_steps
-                    predicted = torch.argmax(outputs, 1)
-                    correct += predicted.eq(labels).sum().item()
+                    # train_loss += loss.item() * grad_accum_steps
+                    # predicted = torch.argmax(outputs, 1)
+                    # correct += predicted.eq(labels).sum().item()
 
                     # progress_bar(i, len(self.loader_dict['train']), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                     #         % (train_loss / (i + 1), 100. * correct / total, correct, total))
@@ -198,32 +198,33 @@ class OneFoldTrainer:
     @torch.no_grad()
     def evaluate(self, mode):
         self.model.eval()
-        correct, total, eval_loss = 0, 0, 0
-        y_true = np.zeros(0)
-        y_pred = np.zeros((0, self.config['num_classes']))
+        # correct, total, eval_loss = 0, 0, 0
+        # y_true = np.zeros(0)
+        # y_pred = np.zeros((0, self.config['num_classes']))
+        all_labels, all_outputs = [], []
+        eval_loss = 0
 
-        for i, (inputs, labels) in enumerate(self.loader_dict[mode]):
-            total += labels.size(0)
-            inputs = inputs.to(self.device)
-            labels = labels.view(-1).to(self.device)
+        for inputs, labels in self.loader_dict[mode]:
+            # total += labels.size(0)
+            inputs = inputs.to(self.device, non_blocking=True)
+            labels = labels.view(-1).to(self.device, non_blocking=True)
             
             outputs = self.model(inputs)
-            loss = self.criterion(outputs, labels)
 
-            eval_loss += loss.item()
-            predicted = torch.argmax(outputs, 1)
-            correct += predicted.eq(labels).sum().item()
+            eval_loss += self.criterion(outputs, labels)
+            all_labels.append(labels)
+            all_outputs.append(outputs)
             
-            y_true = np.concatenate([y_true, labels.cpu().numpy()])
-            y_pred = np.concatenate([y_pred, outputs.cpu().numpy()])
-
             # progress_bar(i, len(self.loader_dict[mode]), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
             #         % (eval_loss / (i + 1), 100. * correct / total, correct, total))
+        labels = torch.cat(all_labels)
+        outputs = torch.cat(all_outputs)
 
         if mode == 'val':
-            return 100. * correct / total, eval_loss / len(self.loader_dict[mode])
+            acc = 100. * (outputs.argmax(1) == labels).float().mean().item() 
+            return acc, eval_loss.item() / len(self.loader_dict[mode])
         elif mode == 'test':
-            return y_true, y_pred
+            return labels.cpu().numpy().astype(float), outputs.cpu().numpy()
         else:
             raise NotImplementedError
 
@@ -363,6 +364,7 @@ def main():
     parser.add_argument('--streaming', action='store_true', help='FIFO streaming latency')
     parser.add_argument('--max_preds', type=int, default=None, help='cap on streaming predictions per fold (latency only)')
     parser.add_argument('--threads', type=int, default=None, help='intra-op CPU threads for torch')
+    parser.add_argument('--name', type=str, default=None, help='override config name')
     args = parser.parse_args()
     if args.threads is not None:
         torch.set_num_threads(args.threads)
@@ -383,6 +385,8 @@ def main():
             override_config = json.load(f)
         update_config(config, override_config)
     config['name'] = os.path.basename(args.config).replace('.json', '') if not config.get('name') else config['name']
+    if args.name:
+        config['name'] += f"_{args.name}"
     print(f"[INFO] Using config: {config['name']}")
     Y_true = np.zeros(0)
     Y_pred = np.zeros((0, config['num_classes']))
