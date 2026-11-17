@@ -206,16 +206,20 @@ def safe_get(d, key, default=None):
     """Safely get a value from a dictionary, returning a default if the key is not present."""
     return d[key] if key in d else default
 
-def summarize_result(config, fold,Y_true, Y_pred, y_true, y_pred, latency_stats, all_latency_stats=None, device='cuda'):
+def summarize_result(config, fold,Y_true, Y_pred, y_true, y_pred, latency_stats, all_latency_stats=None, device='cuda', streaming=False):
     results_path = os.path.join(RESULTS_PATH, f'{config["name"]}')
+    if streaming:
+        save_streaming_result(results_path, fold, latency_stats, device)
+        return
+    
     file_path = os.path.join(results_path, 'results.txt')
     file_exists = os.path.exists(file_path)
     print(f"\n[INFO] Saving results to {results_path}")
     if not os.path.exists(results_path):
         os.makedirs(results_path, exist_ok=True)
+    if fold == 1:
         with open(file_path, 'w') as f:
             f.write('config: ' + str(config) + '\n')
-    
     
     summarize_per_fold(config, fold, y_true, y_pred)
     accuracy, macro_f1, kappa, wf1, n1f1, n2f1, n3f1, rf1 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -266,27 +270,27 @@ def summarize_result(config, fold,Y_true, Y_pred, y_true, y_pred, latency_stats,
         perclass_dt = SingleTable(perclass_data, colored('PER-CLASS RESULT', 'red'))
         
     total_samples = latency_stats['total_samples']
-    per_batch_mean = round(latency_stats['batch_mean_ms'],4)
-    per_batch_std = round(latency_stats['batch_std_ms'], 4)
-    per_sample_latency = round(latency_stats['sample_mean_ms'], 4)
-    throughput = round(latency_stats['throughput_samples_per_sec'], 4)
-    p95_latency = round(latency_stats['batch_p95_ms'], 4)
-    p99_latency = round(latency_stats['batch_p99_ms'], 4)
-    p50_latency = round(latency_stats['batch_p50_ms'], 4)
+    # per_batch_mean = round(latency_stats['batch_mean_ms'],4)
+    # per_batch_std = round(latency_stats['batch_std_ms'], 4)
+    # per_sample_latency = round(latency_stats['sample_mean_ms'], 4)
+    # throughput = round(latency_stats['throughput_samples_per_sec'], 4)
+    # p95_latency = round(latency_stats['batch_p95_ms'], 4)
+    # p99_latency = round(latency_stats['batch_p99_ms'], 4)
+    # p50_latency = round(latency_stats['batch_p50_ms'], 4)
 
     
-    latency_data = [
-        ['Device','Total Samples', 'Per Batch Mean (ms)', 'Per Batch Std (ms)',  'P50 Latency (ms)', 'P95 Latency (ms)', 'P99 Latency (ms)'],
-        [device,total_samples, per_batch_mean, per_batch_std, p50_latency, p95_latency, p99_latency]
-    ]
+    # latency_data = [
+    #     ['Device','Total Samples', 'Per Batch Mean (ms)', 'Per Batch Std (ms)',  'P50 Latency (ms)', 'P95 Latency (ms)', 'P99 Latency (ms)'],
+    #     [device,total_samples, per_batch_mean, per_batch_std, p50_latency, p95_latency, p99_latency]
+    # ]
     
-    latency_dt = SingleTable(latency_data, colored('LATENCY RESULT', 'red'))
+    # latency_dt = SingleTable(latency_data, colored('LATENCY RESULT', 'red'))
     
     print('\n[INFO] Evaluation result from fold 1 to {}'.format(fold))
     if Y_true is not None and Y_pred is not None:
         print('\n' + overall_dt.table)
         print('\n' + perclass_dt.table)
-    print('\n' + latency_dt.table)
+    # print('\n' + latency_dt.table)
     print(colored(' A', 'cyan') + ': Actual Class, ' + colored('P', 'green') + ': Predicted Class' + '\n\n')
 
     metrics = {}
@@ -312,13 +316,13 @@ def summarize_result(config, fold,Y_true, Y_pred, y_true, y_pred, latency_stats,
                     'f1_n2':              n2f1,
                     'f1_n3':              n3f1,
                     'f1_rem':             rf1,
-                    'avg_batch_latency':  per_batch_mean,
-                    'avg_batch_std':      per_batch_std,
-                    'avg_sample_latency': per_sample_latency,
-                    'avg_throughput':     throughput,
-                    'avg_p50':            p50_latency,
-                    'avg_p95':            p95_latency,
-                    'avg_p99':            p99_latency,
+                    # 'avg_batch_latency':  per_batch_mean,
+                    # 'avg_batch_std':      per_batch_std,
+                    # 'avg_sample_latency': per_sample_latency,
+                    # 'avg_throughput':     throughput,
+                    # 'avg_p50':            p50_latency,
+                    # 'avg_p95':            p95_latency,
+                    # 'avg_p99':            p99_latency,
         }
     
     with open(file_path, 'a') as f:
@@ -345,4 +349,26 @@ def save_cm(y_true, y_pred, save_path, fold):
     y_pred_labels = y_pred.argmax(axis=1)  
     cm = skmet.confusion_matrix(y_true, y_pred_labels)
     np.savez(os.path.join(save_path, f"fold_{fold}_reconstructed.npz",), y_true=y_true, y_pred=y_pred, confmat=cm)
-    
+
+def save_streaming_result(results_path, fold, latency_stats, device):
+    os.makedirs(results_path, exist_ok=True)
+    file_path = os.path.join(results_path, f'streaming_{device}.txt')
+    row = {
+        'fold': fold,
+        'device': device,
+        'n_preds': latency_stats['total_samples'],
+        'mean_ms': round(latency_stats['batch_mean_ms'], 4),
+        'std_ms': round(latency_stats['batch_std_ms'], 4),
+        'p50_ms': round(latency_stats['batch_p50_ms'], 4),
+        'p95_ms': round(latency_stats['batch_p95_ms'], 4),
+        'p99_ms': round(latency_stats['batch_p99_ms'], 4),
+        'max_ms': round(latency_stats['batch_max_ms'], 4),
+        'min_ms': round(latency_stats['batch_min_ms'], 4),
+        'throughput_samples_per_sec': round(latency_stats['throughput_samples_per_sec'], 4)
+    }
+    write_header = not os.path.exists(file_path)
+    with open(file_path, 'a') as f:
+        if write_header:
+            f.write(' '.join(row.keys()) + '\n')
+        f.write(' '.join(str(v) for v in row.values()) + '\n')
+    print(f"[INFO] Fold {fold} streaming latency results saved to {file_path}")

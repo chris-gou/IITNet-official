@@ -6,6 +6,7 @@ import numpy as np
 import sklearn.metrics as skmet
 import pynvml
 from evaluator import StreamingEvaluator
+from tqdm import tqdm
  
 import torch
 import torch.nn as nn
@@ -91,7 +92,8 @@ class OneFoldTrainer:
         # correct, total, train_loss = 0, 0, 0
 
         # gradient accumulation
-        grad_accum_steps = self.config.get('grad_accum_steps', 1)
+        # grad_accum_steps = self.config.get('grad_accum_steps', 1)
+        grad_accum_steps = 256 // int(self.config.get('batch_size'))
         self.optimizer.zero_grad(set_to_none=True)
         # t_prev = time.perf_counter()
 
@@ -265,9 +267,6 @@ class OneFoldTrainer:
 
             batch_time = (end_time - start_time) * 1000  # ms
             batch_times.append(batch_time)
-            # progress_bar(i, len(self.loader_dict[mode]), 
-            #             'Batch time: %.2f ms | Avg: %.2f ms' % 
-            #             (batch_time, np.mean(batch_times)))
         
         print('')
         # Calculate statistics
@@ -399,7 +398,7 @@ def main():
                 all_latency_stats.append(latency_stats)
                 print(f"[INFO] Fold {fold} streaming latency: p50={latency_stats['batch_median_ms']:.3f} ms "
                         f"p95={latency_stats['batch_p95_ms']:.3f} ms p99={latency_stats['batch_p99_ms']:.3f} ms")
-                summarize_result(config, fold,None, None, y_true, y_pred, latency_stats, all_latency_stats, device=trainer.device.type)
+                summarize_result(config, fold,None, None, None, None, latency_stats, all_latency_stats, device=trainer.device.type, streaming=True)
                 continue
             Y_true = np.concatenate([Y_true, y_true])
             Y_pred = np.concatenate([Y_pred, y_pred])
